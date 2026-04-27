@@ -2,10 +2,22 @@ export type Severity = "critical" | "high" | "medium" | "low";
 
 export type Category = "security" | "correctness" | "testing" | "maintainability" | "reasoning";
 
+export type HighlightedToken = {
+  content: string;
+  color?: string;
+  fontStyle?: number;
+};
+
+export type HighlightedLine = {
+  number: number;
+  tokens: HighlightedToken[];
+};
+
 export type ChallengeFile = {
   path: string;
   language: string;
   code: string;
+  highlightedLines?: HighlightedLine[];
 };
 
 export type RubricIssue = {
@@ -44,6 +56,10 @@ export type Challenge = {
   scenario: string;
   role: string;
   timeboxMinutes: number;
+  sourceName?: string;
+  sourceUrl?: string;
+  licenseNote?: string;
+  evaluatorSignal?: string;
   files: ChallengeFile[];
   rubric: RubricIssue[];
 };

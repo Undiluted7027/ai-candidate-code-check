@@ -44,7 +44,25 @@ function commentMentionsEvidence(comment: CandidateComment, issue: RubricIssue) 
     "pii-logging": ["log", "email", "redact", "sensitive", "pii", "structured"],
     "success-before-durability": ["before", "201", "success", "durable", "rename", "database", "insert"],
     "overwrite-idempotency": ["overwrite", "collision", "retry", "idempot", "version", "same name"],
-    "happy-path-tests": ["test", "happy path", "unauthorized", "failure", "oversized", "case"]
+    "happy-path-tests": ["test", "happy path", "unauthorized", "failure", "oversized", "case"],
+    "vampi-bola": ["owner", "ownership", "book", "secret", "idor", "authorization", "object"],
+    "vampi-static-secret": ["secret", "jwt", "token", "hardcoded", "expiry", "expiration", "signing"],
+    "vampi-user-enumeration": ["users", "email", "password", "admin", "enumeration", "exposure", "public"],
+    "vampi-mass-assignment": ["admin", "mass assignment", "role", "payload", "allowlist", "is_admin"],
+    "vampi-sql-injection": ["sql", "injection", "query", "parameterized", "title", "f-string"],
+    "vampi-negative-tests": ["test", "negative", "unauthorized", "forbidden", "injection", "ownership", "case"],
+    "java-xxe-doctype": ["xxe", "doctype", "external entity", "entity", "documentbuilderfactory", "secure processing"],
+    "java-xml-size-dos": ["size", "limit", "payload", "billion laughs", "entity expansion", "dos", "timeout"],
+    "java-error-disclosure": ["error", "exception", "stack", "message", "leak", "disclosure", "printstacktrace"],
+    "java-transformer-hardening": ["transformer", "external stylesheet", "access_external", "secure processing", "feature"],
+    "java-content-type": ["content-type", "xml", "form", "validation", "media type", "inputxml"],
+    "java-xml-tests": ["test", "xxe", "doctype", "large", "malformed", "negative", "case"],
+    "go-command-injection-shell": ["command", "injection", "shell", "sh -c", "exec", "host", "count"],
+    "go-unbounded-process": ["timeout", "context", "hang", "count", "unbounded", "process", "resource"],
+    "go-weak-admin-token": ["admin", "token", "hardcoded", "default", "auth", "secret", "header"],
+    "go-network-recon": ["ssrf", "network", "scan", "internal", "allowlist", "host", "recon"],
+    "go-output-disclosure": ["output", "stderr", "raw", "leak", "internal", "error"],
+    "go-negative-tests": ["test", "injection", "timeout", "unauthorized", "internal", "negative", "case"]
   };
 
   return (signalWordsByIssue[issue.id] || []).some((word) => text.includes(word));

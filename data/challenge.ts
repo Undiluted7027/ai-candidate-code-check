@@ -1,10 +1,13 @@
 import type { CandidateReplay, Challenge } from "@/lib/types";
+import { roughChallengePacks } from "@/data/roughChallenges";
 
 export const challenge: Challenge = {
   id: "construction-upload-ai-slop",
   title: "AI Slop Review: Contractor Safety Document Upload",
   role: "Full-stack Developer",
   timeboxMinutes: 25,
+  evaluatorSignal:
+    "Strong practical reviewer. Probe cross-tenant security depth and operational hardening before final offer.",
   scenario:
     "An AI assistant generated an Express endpoint for uploading contractor safety and insurance documents to a construction project portal. Review it before it ships to production.",
   files: [
@@ -232,19 +235,19 @@ export const candidateReplay: CandidateReplay = {
       lineStart: 8,
       lineEnd: 18,
       category: "security",
-      severity: "high",
+      severity: "low",
       body:
-        "multer has no file size limit or MIME/content validation. For safety documents, reject unexpected types and enforce size limits before accepting bytes."
+        "The upload middleware is very permissive. I would at least think about file size limits and some validation before accepting arbitrary contractor document uploads."
     },
     {
       id: "c4",
       filePath: "server/routes/projectDocuments.ts",
       lineStart: 49,
       lineEnd: 67,
-      category: "correctness",
-      severity: "high",
+      category: "maintainability",
+      severity: "medium",
       body:
-        "The route returns 201 before the file move and database insert complete. If either operation fails, the caller still sees success. Response should happen after durable storage and persistence."
+        "This lower block is doing several responsibilities in one handler. It may be easier to maintain if storage and document persistence were extracted into a service."
     },
     {
       id: "c5",
@@ -268,3 +271,270 @@ export const candidateReplay: CandidateReplay = {
     }
   ]
 };
+
+export const vampiChallenge: Challenge = {
+  id: "vampi-api-security-review",
+  title: "API Security Review: VAmPI",
+  role: "Backend/API Engineer",
+  timeboxMinutes: 55,
+  sourceName: "erev0s/VAmPI",
+  sourceUrl: "https://github.com/erev0s/VAmPI",
+  licenseNote: "Curated demo fixture inspired by VAmPI, an MIT-licensed vulnerable Flask REST API.",
+  evaluatorSignal:
+    "Strong API security review signal; follow up on authorization modeling and negative-path test depth.",
+  scenario:
+    "A compact Flask REST API based on the VAmPI vulnerable API training project is being reviewed before internal teams use it as a starter service. Review the scoped auth, user, and book endpoints for OWASP API risks.",
+  files: [
+    {
+      path: "vampi/app.py",
+      language: "py",
+      code: `from flask import Flask, jsonify, request
+import jwt
+import sqlite3
+from werkzeug.security import check_password_hash
+
+app = Flask(__name__)
+JWT_SECRET = "vampi-secret"
+
+def db():
+    return sqlite3.connect("vampi.db")
+
+def current_user():
+    auth = request.headers.get("Authorization", "")
+    token = auth.replace("Bearer ", "")
+    if not token:
+        return None
+    try:
+        return jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+    except Exception:
+        return None
+
+@app.post("/users/v1/login")
+def login():
+    payload = request.get_json(force=True)
+    row = db().execute(
+        "select id, username, password_hash, is_admin from users where username = ?",
+        (payload.get("username"),),
+    ).fetchone()
+    if not row or not check_password_hash(row[2], payload.get("password", "")):
+        return jsonify({"error": "invalid username or password"}), 401
+    token = jwt.encode({"id": row[0], "username": row[1], "admin": row[3]}, JWT_SECRET, algorithm="HS256")
+    return jsonify({"auth_token": token})
+
+@app.get("/users/v1")
+def list_users():
+    rows = db().execute("select id, username, email, password_hash, is_admin from users").fetchall()
+    users = [
+        {"id": r[0], "username": r[1], "email": r[2], "password_hash": r[3], "admin": r[4]}
+        for r in rows
+    ]
+    return jsonify({"users": users})
+
+@app.get("/books/v1/<book_id>")
+def get_book(book_id):
+    user = current_user()
+    if not user:
+        return jsonify({"error": "missing token"}), 401
+    row = db().execute("select id, owner_id, title, secret from books where id = ?", (book_id,)).fetchone()
+    if not row:
+        return jsonify({"error": "book not found"}), 404
+    return jsonify({"id": row[0], "owner_id": row[1], "title": row[2], "secret": row[3]})
+
+@app.post("/users/v1/register")
+def register():
+    payload = request.get_json(force=True)
+    db().execute(
+        "insert into users(username, email, password_hash, is_admin) values (?, ?, ?, ?)",
+        (payload["username"], payload["email"], payload["password"], payload.get("is_admin", False)),
+    )
+    db().commit()
+    return jsonify(payload), 201
+
+@app.get("/books/v1/search")
+def search_books():
+    title = request.args.get("title", "")
+    sql = f"select id, title, owner_id from books where title like '%{title}%'"
+    rows = db().execute(sql).fetchall()
+    return jsonify({"books": [{"id": r[0], "title": r[1], "owner_id": r[2]} for r in rows]})`
+    },
+    {
+      path: "vampi/test_api_security.py",
+      language: "py",
+      code: `def test_login_returns_token(client):
+    response = client.post("/users/v1/login", json={"username": "alice", "password": "Password1"})
+    assert response.status_code == 200
+    assert "auth_token" in response.get_json()
+
+def test_user_can_read_book(client, auth_headers):
+    response = client.get("/books/v1/1", headers=auth_headers)
+    assert response.status_code == 200
+    assert response.get_json()["title"] == "alice private book"
+
+def test_register_user(client):
+    response = client.post(
+        "/users/v1/register",
+        json={"username": "new-user", "email": "new@example.com", "password": "Password1"},
+    )
+    assert response.status_code == 201`
+    }
+  ],
+  rubric: [
+    {
+      id: "vampi-static-secret",
+      title: "JWT signing secret is hardcoded and tokens have no expiry",
+      category: "security",
+      severity: "high",
+      weight: 17,
+      filePath: "vampi/app.py",
+      lineStart: 7,
+      lineEnd: 31,
+      expectedEvidence:
+        "The API signs tokens with a hardcoded secret and does not set exp, issuer, audience, rotation, or revocation controls.",
+      seniorSignal:
+        "A strong reviewer asks for environment-managed secrets, token expiry, explicit verification claims, and rotation strategy."
+    },
+    {
+      id: "vampi-user-enumeration",
+      title: "User listing exposes sensitive account fields",
+      category: "security",
+      severity: "critical",
+      weight: 21,
+      filePath: "vampi/app.py",
+      lineStart: 34,
+      lineEnd: 41,
+      expectedEvidence:
+        "The unauthenticated user listing returns emails, password hashes, and admin flags for every account.",
+      seniorSignal:
+        "A senior candidate calls out excessive data exposure and requires auth, field-level response allowlists, and admin-only access."
+    },
+    {
+      id: "vampi-bola",
+      title: "Book secret endpoint lacks object-level authorization",
+      category: "security",
+      severity: "critical",
+      weight: 24,
+      filePath: "vampi/app.py",
+      lineStart: 43,
+      lineEnd: 51,
+      expectedEvidence:
+        "Any authenticated user can request any book by id and receive owner_id and secret because the query never scopes the book to the current user.",
+      seniorSignal:
+        "A strong reviewer names BOLA/IDOR and suggests querying by both book id and current user id unless an admin policy explicitly allows access."
+    },
+    {
+      id: "vampi-mass-assignment",
+      title: "Registration trusts client-controlled privilege fields",
+      category: "security",
+      severity: "high",
+      weight: 15,
+      filePath: "vampi/app.py",
+      lineStart: 53,
+      lineEnd: 61,
+      expectedEvidence:
+        "The register endpoint accepts is_admin directly from the request payload, allowing privilege escalation through mass assignment.",
+      seniorSignal:
+        "A senior candidate asks for request allowlists, server-side role assignment, password hashing, and no echoing of raw payloads."
+    },
+    {
+      id: "vampi-sql-injection",
+      title: "Search query is assembled with unsanitized user input",
+      category: "security",
+      severity: "high",
+      weight: 17,
+      filePath: "vampi/app.py",
+      lineStart: 63,
+      lineEnd: 68,
+      expectedEvidence:
+        "The title parameter is interpolated into a SQL string, so a crafted query can alter the statement.",
+      seniorSignal:
+        "A strong reviewer requires parameterized queries and points out that validation alone is not the primary defense."
+    },
+    {
+      id: "vampi-negative-tests",
+      title: "Tests miss authorization and attack-path cases",
+      category: "testing",
+      severity: "medium",
+      weight: 11,
+      filePath: "vampi/test_api_security.py",
+      lineStart: 1,
+      lineEnd: 16,
+      expectedEvidence:
+        "The tests only cover happy paths and do not assert cross-user book access is forbidden, user listing is protected, admin registration is blocked, or SQL injection payloads are rejected.",
+      seniorSignal:
+        "A useful test review names concrete negative tests tied to OWASP API risks rather than generic coverage comments."
+    }
+  ]
+};
+
+export const vampiCandidateReplay: CandidateReplay = {
+  candidate: {
+    name: "Arjun Patel",
+    role: "Backend/API Engineer",
+    assessment: "API Security Review",
+    submittedAt: "VAmPI replay"
+  },
+  comments: [
+    {
+      id: "vampi-c1",
+      filePath: "vampi/app.py",
+      lineStart: 43,
+      lineEnd: 51,
+      category: "security",
+      severity: "critical",
+      body:
+        "This is a classic object-level authorization problem. The query fetches a book by id after only checking that a token exists, so any user can read another owner's secret. Scope by current user id or enforce an explicit admin policy."
+    },
+    {
+      id: "vampi-c2",
+      filePath: "vampi/app.py",
+      lineStart: 36,
+      lineEnd: 41,
+      category: "security",
+      severity: "critical",
+      body:
+        "The public user list exposes email, password_hash, and admin flags. That is excessive data exposure and account enumeration. This should require authorization and return an allowlisted response shape."
+    },
+    {
+      id: "vampi-c3",
+      filePath: "vampi/app.py",
+      lineStart: 63,
+      lineEnd: 68,
+      category: "security",
+      severity: "high",
+      body:
+        "The search endpoint builds SQL with an f-string using the title query parameter. Use a parameterized LIKE query instead of interpolating request input."
+    },
+    {
+      id: "vampi-c4",
+      filePath: "vampi/app.py",
+      lineStart: 53,
+      lineEnd: 61,
+      category: "maintainability",
+      severity: "medium",
+      body:
+        "Registration is trusting too much of the request payload, including admin-like fields. I would move this to an explicit allowlist and keep role assignment on the server side."
+    },
+    {
+      id: "vampi-c5",
+      filePath: "vampi/test_api_security.py",
+      lineStart: 1,
+      lineEnd: 16,
+      category: "testing",
+      severity: "medium",
+      body:
+        "These tests only cover happy paths. Add negative tests for unauthorized book access, user-list exposure, admin self-registration, and SQL injection payloads."
+    }
+  ]
+};
+
+export const reviewChallenges = [
+  {
+    challenge,
+    replay: candidateReplay
+  },
+  {
+    challenge: vampiChallenge,
+    replay: vampiCandidateReplay
+  },
+  ...roughChallengePacks
+];

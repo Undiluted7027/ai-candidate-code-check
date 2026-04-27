@@ -1,9 +1,20 @@
 import { ProveItApp } from "@/components/ProveItApp";
-import { candidateReplay, challenge } from "@/data/challenge";
+import { reviewChallenges } from "@/data/challenge";
+import { highlightChallenge } from "@/lib/highlight";
 import { scoreAttempt } from "@/lib/scoring";
 
-export default function Home() {
-  const replayScorecard = scoreAttempt(challenge, candidateReplay.comments);
+export default async function Home() {
+  const challengePacks = await Promise.all(
+    reviewChallenges.map(async (pack) => {
+      const highlightedChallenge = await highlightChallenge(pack.challenge);
 
-  return <ProveItApp challenge={challenge} replay={candidateReplay} replayScorecard={replayScorecard} />;
+      return {
+        challenge: highlightedChallenge,
+        replay: pack.replay,
+        replayScorecard: scoreAttempt(highlightedChallenge, pack.replay.comments)
+      };
+    })
+  );
+
+  return <ProveItApp challengePacks={challengePacks} />;
 }

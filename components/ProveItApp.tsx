@@ -20,6 +20,7 @@ import type {
   Category,
   Challenge,
   ChallengeFile,
+  HighlightedLine,
   IssueMatchStatus,
   Scorecard,
   Severity,
@@ -28,10 +29,14 @@ import type {
 
 type AppView = "dashboard" | "replay" | "try";
 
-type Props = {
+type ReviewChallengePack = {
   challenge: Challenge;
   replay: CandidateReplay;
   replayScorecard: Scorecard;
+};
+
+type Props = {
+  challengePacks: ReviewChallengePack[];
 };
 
 const categoryLabels: Record<Category, string> = {
@@ -75,11 +80,20 @@ function classNames(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
 }
 
-function lineNumbers(file: ChallengeFile) {
+function lineNumbers(file: ChallengeFile): HighlightedLine[] {
   return file.code.split("\n").map((code, index) => ({
     number: index + 1,
-    code
+    tokens: [{ content: code || " " }]
   }));
+}
+
+function tokenStyle(token: HighlightedLine["tokens"][number]): React.CSSProperties {
+  return {
+    color: token.color || "#24292e",
+    fontStyle: token.fontStyle === 1 ? "italic" : undefined,
+    fontWeight: token.fontStyle === 2 ? 700 : undefined,
+    textDecoration: token.fontStyle === 4 ? "underline" : undefined
+  };
 }
 
 function rangeLabel(start: number, end: number) {
@@ -243,7 +257,7 @@ function ScoreFormula({ scorecard }: { scorecard: Scorecard }) {
         Each hidden issue has a severity weight. Full credit requires line overlap, matching category, close severity,
         and evidence in the review note. Nearby or incomplete findings receive partial credit.
       </p>
-      <div className="mt-4 rounded-2xl px-4 py-3 font-mono text-xs leading-5 text-white/82">
+      <div className="mt-4 rounded-2xl border border-carbon/10 bg-white px-4 py-3 font-mono text-xs leading-5 text-carbon/78 shadow-insetline">
         {scorecard.earned} earned / {scorecard.possible} possible = {scorecard.overall}% ProveIt score
       </div>
     </div>
@@ -263,6 +277,10 @@ function SummaryPanel({
 }) {
   const [summary, setSummary] = useState<SummaryResponse | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setSummary(null);
+  }, [challenge.id]);
 
   async function generateSummary() {
     setLoading(true);
@@ -340,6 +358,43 @@ function SummaryPanel({
   );
 }
 
+function ChallengeSwitcher({
+  packs,
+  selectedId,
+  onSelect
+}: {
+  packs: ReviewChallengePack[];
+  selectedId: string;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="grid gap-3 rounded-[2rem] border border-carbon/8 bg-white/70 p-2 shadow-insetline md:grid-cols-2">
+      {packs.map((pack) => {
+        const selected = pack.challenge.id === selectedId;
+
+        return (
+          <button
+            key={pack.challenge.id}
+            onClick={() => onSelect(pack.challenge.id)}
+            className={classNames(
+              "flex-1 rounded-[1.5rem] p-4 text-left transition duration-500 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.99]",
+              selected ? "bg-ink text-white shadow-[0_18px_35px_-24px_rgba(16,20,24,0.9)]" : "text-carbon hover:bg-carbon/6"
+            )}
+          >
+            <div className={classNames("text-xs font-bold uppercase tracking-[0.18em]", selected ? "text-white/50" : "text-carbon/45")}>
+              {pack.challenge.role}
+            </div>
+            <div className="mt-2 text-base font-semibold tracking-tight">{pack.challenge.title}</div>
+            <div className={classNames("mt-2 text-sm leading-5", selected ? "text-white/64" : "text-carbon/58")}>
+              {pack.replayScorecard.caught}/{pack.replayScorecard.issueMatches.length} risks caught in replay
+            </div>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function SignalList({ title, items, tone }: { title: string; items: string[]; tone: "good" | "neutral" }) {
   return (
     <div className="rounded-3xl border border-carbon/8 bg-white/72 p-4">
@@ -361,11 +416,17 @@ function SignalList({ title, items, tone }: { title: string; items: string[]; to
 }
 
 function Dashboard({
+  challengePacks,
+  selectedChallengeId,
+  setSelectedChallengeId,
   challenge,
   replay,
   scorecard,
   setActiveView
 }: {
+  challengePacks: ReviewChallengePack[];
+  selectedChallengeId: string;
+  setSelectedChallengeId: (id: string) => void;
   challenge: Challenge;
   replay: CandidateReplay;
   scorecard: Scorecard;
@@ -389,14 +450,22 @@ function Dashboard({
               Hire developers who can spot AI slop before it ships.
             </h1>
             <p className="mt-6 max-w-2xl text-base leading-7 text-carbon/68 sm:text-lg">
-              ProveIt turns realistic AI-generated code into a hiring signal. This replay shows whether a candidate can
-              catch security, correctness, and testing risks that polished model output hides.
+              ProveIt turns realistic code into a hiring signal. This replay shows whether a candidate can catch
+              security, correctness, and testing risks before they reach production.
             </p>
 
+            <div className="mt-8">
+              <ChallengeSwitcher
+                packs={challengePacks}
+                selectedId={selectedChallengeId}
+                onSelect={setSelectedChallengeId}
+              />
+            </div>
+
             <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-              <Button onClick={() => setActiveView("replay")}>Open assessment replay</Button>
+              <Button onClick={() => setActiveView("replay")}>For Recruiters</Button>
               <Button onClick={() => setActiveView("try")} variant="light">
-                Try the review
+                For Candidates
               </Button>
             </div>
           </div>
@@ -423,14 +492,34 @@ function Dashboard({
 
             <div className="rounded-3xl bg-ink p-5 text-white">
               <div className="text-sm font-semibold text-white/58">Hiring signal</div>
-              <p className="mt-2 text-lg font-semibold leading-7">
-                Strong practical reviewer. Probe cross-tenant security depth and operational hardening before final
-                offer.
-              </p>
+              <p className="mt-2 text-lg font-semibold leading-7">{challenge.evaluatorSignal}</p>
             </div>
           </div>
         </Shell>
       </section>
+
+      {challenge.sourceName ? (
+        <section className="mt-6">
+          <Shell>
+            <div className="flex flex-col gap-3 p-5 text-sm leading-6 text-carbon/64 lg:flex-row lg:items-center lg:justify-between">
+              <span>
+                Source fixture: <span className="font-semibold text-ink">{challenge.sourceName}</span>.{" "}
+                {challenge.licenseNote}
+              </span>
+              {challenge.sourceUrl ? (
+                <a
+                  href={challenge.sourceUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-semibold text-signal transition hover:text-ink"
+                >
+                  View source repo
+                </a>
+              ) : null}
+            </div>
+          </Shell>
+        </section>
+      ) : null}
 
       <section className="mt-6 grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
         <Shell>
@@ -496,7 +585,7 @@ function CodeViewer({
   onLineClick?: (line: number) => void;
 }) {
   const activeFile = challenge.files.find((file) => file.path === activePath) || challenge.files[0];
-  const lines = lineNumbers(activeFile);
+  const lines = activeFile.highlightedLines || lineNumbers(activeFile);
 
   function lineStatus(line: number): IssueMatchStatus | null {
     const match = scorecard?.issueMatches.find(
@@ -516,7 +605,7 @@ function CodeViewer({
     <Shell>
       <div className="overflow-hidden">
         <FileTabs files={challenge.files} activePath={activeFile.path} setActivePath={setActivePath} />
-        <div className="code-scroll max-h-[680px] overflow-auto p-4 font-mono text-[13px] leading-6 text-white/78">
+        <div className="code-scroll max-h-[680px] overflow-auto bg-white p-4 font-mono text-[13px] leading-6 text-carbon/88">
           {lines.map((line) => {
             const status = lineStatus(line.number);
             return (
@@ -526,16 +615,20 @@ function CodeViewer({
                 onClick={() => onLineClick?.(line.number)}
                 className={classNames(
                   "flex min-w-full items-start rounded-lg px-2 text-left transition duration-300",
-                  onLineClick && "cursor-pointer hover:bg-white/8",
-                  status === "caught" && "bg-signal/16",
-                  status === "partial" && "bg-amber/14",
-                  status === "missed" && "bg-risk/14",
-                  isSelected(line.number) && "ring-1 ring-white/55"
+                  onLineClick && "cursor-pointer hover:bg-carbon/5",
+                  status === "caught" && "bg-signal/12",
+                  status === "partial" && "bg-amber/12",
+                  status === "missed" && "bg-risk/10",
+                  isSelected(line.number) && "ring-1 ring-signal/55"
                 )}
               >
-                <span className="w-12 shrink-0 select-none pr-4 text-right text-white/38">{line.number}</span>
-                <code className="block min-w-0 flex-1 whitespace-pre-wrap break-words text-white/82">
-                  {line.code || " "}
+                <span className="w-12 shrink-0 select-none pr-4 text-right text-carbon/34">{line.number}</span>
+                <code className="block min-w-0 flex-1 whitespace-pre-wrap break-words">
+                  {line.tokens.map((token, index) => (
+                    <span key={`${line.number}-${index}`} style={tokenStyle(token)}>
+                      {token.content}
+                    </span>
+                  ))}
                 </code>
               </button>
             );
@@ -607,6 +700,10 @@ function Replay({
 }) {
   const [activePath, setActivePath] = useState(challenge.files[0].path);
 
+  useEffect(() => {
+    setActivePath(challenge.files[0].path);
+  }, [challenge]);
+
   return (
     <main className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
       <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
@@ -614,6 +711,16 @@ function Replay({
           <div className="text-sm font-semibold uppercase tracking-[0.18em] text-carbon/48">Challenge replay</div>
           <h1 className="mt-2 text-4xl font-semibold tracking-tight text-ink sm:text-5xl">{challenge.title}</h1>
           <p className="mt-4 max-w-3xl text-base leading-7 text-carbon/67">{challenge.scenario}</p>
+          {challenge.licenseNote ? (
+            <p className="mt-3 max-w-3xl text-sm leading-6 text-carbon/52">
+              {challenge.licenseNote}{" "}
+              {challenge.sourceUrl ? (
+                <a href={challenge.sourceUrl} target="_blank" rel="noreferrer" className="font-semibold text-signal">
+                  Source
+                </a>
+              ) : null}
+            </p>
+          ) : null}
         </div>
         <Button onClick={() => setActiveView("try")} variant="light">
           Try it yourself
@@ -684,19 +791,26 @@ function TryMode({ challenge }: { challenge: Challenge }) {
   const [submitted, setSubmitted] = useState(false);
 
   useEffect(() => {
-    const stored = window.localStorage.getItem("proveit-try-comments");
+    setActivePath(challenge.files[0].path);
+    setSelectionStart(null);
+    setSelectionEnd(null);
+    setSubmitted(false);
+    setBody("");
+    const stored = window.localStorage.getItem(`proveit-try-comments-${challenge.id}`);
     if (stored) {
       try {
         setComments(JSON.parse(stored) as CandidateComment[]);
       } catch {
         setComments([]);
       }
+    } else {
+      setComments([]);
     }
-  }, []);
+  }, [challenge]);
 
   useEffect(() => {
-    window.localStorage.setItem("proveit-try-comments", JSON.stringify(comments));
-  }, [comments]);
+    window.localStorage.setItem(`proveit-try-comments-${challenge.id}`, JSON.stringify(comments));
+  }, [challenge.id, comments]);
 
   const selectedRange =
     selectionStart === null
@@ -752,11 +866,14 @@ function TryMode({ challenge }: { challenge: Challenge }) {
     <main className="mx-auto w-full max-w-7xl px-4 py-10 sm:px-6 lg:px-8">
       <div className="mb-6">
         <div className="text-sm font-semibold uppercase tracking-[0.18em] text-carbon/48">Try mode</div>
-        <h1 className="mt-2 text-4xl font-semibold tracking-tight text-ink sm:text-5xl">Review the AI-generated endpoint</h1>
+        <h1 className="mt-2 text-4xl font-semibold tracking-tight text-ink sm:text-5xl">{challenge.title}</h1>
         <p className="mt-4 max-w-3xl text-base leading-7 text-carbon/67">
           Click a line once to start a range, click another line to finish it, then add the review finding. Submit when
           you have enough evidence.
         </p>
+        {challenge.licenseNote ? (
+          <p className="mt-3 max-w-3xl text-sm leading-6 text-carbon/52">{challenge.licenseNote}</p>
+        ) : null}
       </div>
 
       <section className="grid gap-6 xl:grid-cols-[1.12fr_0.88fr]">
@@ -869,8 +986,8 @@ function TryMode({ challenge }: { challenge: Challenge }) {
                 <h2 className="text-xl font-semibold tracking-tight text-ink">Your findings</h2>
                 {comments.length === 0 ? (
                   <div className="mt-4 rounded-3xl border border-dashed border-carbon/14 bg-paper/60 p-5 text-sm leading-6 text-carbon/62">
-                    No findings yet. Start with the auth check, file handling, or the moment the API sends a success
-                    response.
+                    No findings yet. Start with auth boundaries, sensitive data exposure, input handling, or missing
+                    negative tests.
                   </div>
                 ) : (
                   <div className="mt-5">
@@ -886,19 +1003,34 @@ function TryMode({ challenge }: { challenge: Challenge }) {
   );
 }
 
-export function ProveItApp({ challenge, replay, replayScorecard }: Props) {
+export function ProveItApp({ challengePacks }: Props) {
   const [activeView, setActiveView] = useState<AppView>("dashboard");
+  const [selectedChallengeId, setSelectedChallengeId] = useState(challengePacks[0].challenge.id);
+  const activePack = challengePacks.find((pack) => pack.challenge.id === selectedChallengeId) || challengePacks[0];
 
   return (
     <div className="noise min-h-[100dvh] overflow-x-hidden">
       <Nav activeView={activeView} setActiveView={setActiveView} />
       {activeView === "dashboard" ? (
-        <Dashboard challenge={challenge} replay={replay} scorecard={replayScorecard} setActiveView={setActiveView} />
+        <Dashboard
+          challengePacks={challengePacks}
+          selectedChallengeId={activePack.challenge.id}
+          setSelectedChallengeId={setSelectedChallengeId}
+          challenge={activePack.challenge}
+          replay={activePack.replay}
+          scorecard={activePack.replayScorecard}
+          setActiveView={setActiveView}
+        />
       ) : null}
       {activeView === "replay" ? (
-        <Replay challenge={challenge} replay={replay} scorecard={replayScorecard} setActiveView={setActiveView} />
+        <Replay
+          challenge={activePack.challenge}
+          replay={activePack.replay}
+          scorecard={activePack.replayScorecard}
+          setActiveView={setActiveView}
+        />
       ) : null}
-      {activeView === "try" ? <TryMode challenge={challenge} /> : null}
+      {activeView === "try" ? <TryMode challenge={activePack.challenge} /> : null}
       <footer className="mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 pb-8 text-xs text-carbon/48 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
         <span>ProveIt BuildDay POC</span>
         <span>Deterministic scoring plus AI-generated evaluator narrative</span>
